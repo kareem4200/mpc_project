@@ -29,17 +29,17 @@ class MPC:
                   v_next = v + a * self.time_step
                   
                   cost += np.linalg.norm([x_next - target_x, y_next - target_y])
-                  cost += 0.1 * (delta ** 2 + a ** 2)
+                  cost += 0.2 * (delta ** 2 + a ** 2)
                   
-                  # if i > 0:
-                  #       steering_diff = np.abs(delta - prev_delta)
-                  #       throttle_diff = np.abs(a - prev_a)
-                  #       cost += 0.1 * (steering_diff ** 2 + throttle_diff ** 2)
+                  if i > 0:
+                        steering_diff = np.abs(delta - prev_delta)
+                        throttle_diff = np.abs(a - prev_a)
+                        cost += 0.2 * (steering_diff ** 2 + throttle_diff ** 2)
                   
-                  # prev_delta, prev_a = delta, a
+                  prev_delta, prev_a = delta, a
                   
                   x, y, theta, v = x_next, y_next, theta_next, v_next
-            print("Cost: ", cost)
+            # print("Cost: ", cost)
 
             return cost
       
