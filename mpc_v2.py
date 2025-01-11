@@ -39,7 +39,7 @@ class MPC:
                   prev_delta, prev_a = delta, a
                   
                   x, y, theta, v = x_next, y_next, theta_next, v_next
-            # print("Cost: ", cost)
+            print("Cost: ", cost)
 
             return cost
       
