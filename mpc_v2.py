@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from scipy.optimize import minimize
 
 class MPC:
@@ -25,11 +26,11 @@ class MPC:
                   
                   x_next = x + v * np.cos(theta) * self.time_step
                   y_next = y + v * np.sin(theta) * self.time_step
-                  theta_next = theta + (v / self.wheel_base) * delta * self.time_step
+                  theta_next = theta + (v / self.wheel_base) * math.tan(delta) * self.time_step
                   v_next = v + a * self.time_step
                   
                   cost += np.linalg.norm([x_next - target_x, y_next - target_y])
-                  cost += 0.2 * (delta ** 2 + a ** 2)
+                  # cost += 0.2 * (delta ** 2 + a ** 2)
                   
                   if i > 0:
                         steering_diff = np.abs(delta - prev_delta)
@@ -48,7 +49,7 @@ class MPC:
             bounds = [(-np.pi/4, np.pi/4), (-2.0, 2.0)] * self.horizon
             
             u0 = np.array([[self.steer_hist[i], self.throttle_hist[i]] for i in range(self.horizon)])
-
+            
             res = minimize(
                   self.cost,
                   u0,
@@ -66,7 +67,7 @@ class MPC:
             
             self.state[0] += self.state[3] * np.cos(self.state[2]) * self.time_step
             self.state[1] += self.state[3] * np.sin(self.state[2]) * self.time_step
-            self.state[2] += (self.state[3] / self.wheel_base) * u1[0] * self.time_step
+            self.state[2] += (self.state[3] / self.wheel_base) * math.tan(u1[0]) * self.time_step
             self.state[3] += u2[0] * self.time_step
             
             if np.linalg.norm([self.state[0] - trajectory[self.current_wp_idx][0], 
