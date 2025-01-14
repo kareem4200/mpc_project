@@ -7,11 +7,14 @@ class MPC:
             self.time_step = time_step
             self.horizon = horizon
             self.current_wp_idx = 0
-            self.wheel_base = 1.686
+            self.wheel_base = 2.875
             self.yaw_rate = 0
+            self.max_steer = 45
+            self.max_acc = 5
             self.state = initial_state
             self.steer_hist = np.zeros(horizon)
-            self.throttle_hist = np.zeros(horizon)
+            # self.throttle_hist = np.zeros(horizon)
+            self.throttle_hist = np.full(shape=horizon, fill_value=0.5)
             self.goal_reached = False
   
       def cost(self, u, x0, waypoints):
@@ -25,13 +28,20 @@ class MPC:
                   delta, a = u[2 * i], u[2 * i + 1]
                   target_x, target_y = waypoints[self.current_wp_idx]
                   
+                  delta = (delta * self.max_steer) * math.pi / 180
+                  a = a * self.max_acc
+                  
                   x_next = x + v * np.cos(theta) * self.time_step
                   y_next = y + v * np.sin(theta) * self.time_step
                   theta_next = theta + (v / self.wheel_base) * math.tan(delta) * self.time_step
                   v_next = v + a * self.time_step
-                  
+                  # print("next x: ", x_next)
                   cost += np.linalg.norm([x_next - target_x, y_next - target_y])
-                  cost += 0.2 * (delta ** 2 + a ** 2)
+                  cost += 0.4 * (delta ** 2)
+                  cost += 0.2 * (a ** 2)
+                  # print(a)
+                  # if a < 0.1:
+                  #       cost += 1.0
                   
                   if i > 0:
                         steering_diff = np.abs(delta - prev_delta)
@@ -47,7 +57,8 @@ class MPC:
       
       def mpc_run(self, trajectory):
             
-            bounds = [(-np.pi/4, np.pi/4), (-2.0, 2.0)] * self.horizon
+            bounds = [(-0.5, 0.5), (0.0, 1.0)] * self.horizon
+            # print(self.current_wp_idx)
             
             u0 = np.array([[self.steer_hist[i], self.throttle_hist[i]] for i in range(self.horizon)])
             
@@ -66,11 +77,18 @@ class MPC:
             self.steer_hist = u1
             self.throttle_hist = u2
             
+            current_steer = (u1[0] * self.max_steer) * math.pi / 180
+            current_acc = u2[0] * self.max_acc
+            
             self.state[0] += self.state[3] * np.cos(self.state[2]) * self.time_step
             self.state[1] += self.state[3] * np.sin(self.state[2]) * self.time_step
-            self.yaw_rate = (self.state[3] / self.wheel_base) * math.tan(u1[0])
-            self.state[2] += (self.state[3] / self.wheel_base) * math.tan(u1[0]) * self.time_step
-            self.state[3] += u2[0] * self.time_step
+            self.yaw_rate = (self.state[3] / self.wheel_base) * math.tan(current_steer)
+            self.state[2] += (self.state[3] / self.wheel_base) * math.tan(current_steer) * self.time_step
+            self.state[3] += current_acc * self.time_step
+            
+            # print(self.state[0])
+            print("current (model): ", [self.state[0], self.state[1]])
+            # print("target: ", [trajectory[self.current_wp_idx][0], trajectory[self.current_wp_idx][1]])
             
             if np.linalg.norm([self.state[0] - trajectory[self.current_wp_idx][0], 
                                self.state[1] - trajectory[self.current_wp_idx][1]]) <= 0.5:
