@@ -8,6 +8,7 @@ class MPC:
             self.horizon = horizon
             self.current_wp_idx = 0
             self.wheel_base = 1.686
+            self.yaw_rate = 0
             self.state = initial_state
             self.steer_hist = np.zeros(horizon)
             self.throttle_hist = np.zeros(horizon)
@@ -30,7 +31,7 @@ class MPC:
                   v_next = v + a * self.time_step
                   
                   cost += np.linalg.norm([x_next - target_x, y_next - target_y])
-                  # cost += 0.2 * (delta ** 2 + a ** 2)
+                  cost += 0.2 * (delta ** 2 + a ** 2)
                   
                   if i > 0:
                         steering_diff = np.abs(delta - prev_delta)
@@ -40,7 +41,7 @@ class MPC:
                   prev_delta, prev_a = delta, a
                   
                   x, y, theta, v = x_next, y_next, theta_next, v_next
-            print("Cost: ", cost)
+            # print("Cost: ", cost)
 
             return cost
       
@@ -67,6 +68,7 @@ class MPC:
             
             self.state[0] += self.state[3] * np.cos(self.state[2]) * self.time_step
             self.state[1] += self.state[3] * np.sin(self.state[2]) * self.time_step
+            self.yaw_rate = (self.state[3] / self.wheel_base) * math.tan(u1[0])
             self.state[2] += (self.state[3] / self.wheel_base) * math.tan(u1[0]) * self.time_step
             self.state[3] += u2[0] * self.time_step
             
@@ -74,6 +76,6 @@ class MPC:
                                self.state[1] - trajectory[self.current_wp_idx][1]]) <= 0.5:
                   self.current_wp_idx += 1
                   if self.current_wp_idx >= len(trajectory):
-                        return self.state, u1, u2, True
+                        return self.state, u1, u2, True, self.yaw_rate
             
-            return self.state, u1, u2, False
+            return self.state, u1, u2, False, self.yaw_rate
