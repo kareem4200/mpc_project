@@ -3,13 +3,24 @@ import numpy as np
 from mpc_v2 import MPC
 import time
 from agents.navigation.global_route_planner import GlobalRoutePlanner
+from vehicle_physics_tester import change_physics_control
+import os
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+import cv2
 
+    
 client = carla.Client("localhost", 2000)
 client.set_timeout(10)
 world = client.load_world('Town01')
+
+settings = world.get_settings()
+settings.synchronous_mode = True
+settings.fixed_delta_seconds = 0.045
+world.apply_settings(settings)
+
 amap = world.get_map()
 
-sampling_resolution = 5
+sampling_resolution = 10
 grp = GlobalRoutePlanner(amap, sampling_resolution)
 
 spawn_points = world.get_map().get_spawn_points()
@@ -20,56 +31,67 @@ w1 = grp.trace_route(a, b)
 waypoints_list = []
 for w in w1:
       loc = w[0].transform.location
-      # print(f"X={loc.x}, Y={loc.y}, Z={loc.z}")
       waypoints_list.append([loc.x, loc.y])
-
-      world.debug.draw_string(w[0].transform.location, 'O', draw_shadow=False,
-      color = carla.Color(r=0, g=0, b=255), life_time=1000.0,
-      persistent_lines=True)
+      world.debug.draw_point(w[0].transform.location, size=0.05, life_time=1000.0)
       
 waypoints_np = np.array(waypoints_list)
 
 blueprint_library = world.get_blueprint_library()
 vehicle_blueprint = blueprint_library.filter('vehicle.*model3*')[0]
+
 vehicle = world.spawn_actor(vehicle_blueprint, spawn_points[50])
 
-time.sleep(2)
+camera_bp = blueprint_library.find("sensor.camera.rgb")
+
+image_w = camera_bp.get_attribute("image_size_x").as_int()
+image_h = camera_bp.get_attribute("image_size_y").as_int()
+
+camera_transform = carla.Transform(carla.Location(x=-6.0, z=3.0))
+camera = world.spawn_actor(camera_bp, camera_transform, attach_to=vehicle)
+
+sensor_data = {'rgb_image': np.zeros((image_h, image_w, 4))}
+camera.listen(lambda image: cam_callback(image, sensor_data))
+
+def cam_callback(image, data_dict):
+    img = np.reshape(np.copy(image.raw_data), (image.height, image.width, 4))
+    img[:,:,3] = 255
+    data_dict['rgb_image'] = img
+    
 control = carla.VehicleControl()
-time.sleep(2)
 
-transform = vehicle.get_transform()
-loc = transform.location
-rot = transform.rotation
-
-# print(waypoints_np[0])
-# print(waypoints_np.shape)
-# print(type(waypoints_np))
-
-horizon = 20
+horizon = 7
 dt = 0.045
-
 done = False
-initial_state = np.array([loc.x, loc.y, rot.yaw*np.pi/180, 1.0])    # (X, Y, Orientation, Velocity)
-states = np.array([initial_state])
-steer_arr = []
-yaw_rate_arr = [0]
-mpc = MPC(time_step=dt, horizon=horizon, initial_state=initial_state)
+
+mpc = MPC(time_step=dt, horizon=horizon, trajectory=waypoints_np)
+i = 0
 
 while not done:
-      # print(f'Iteration: {i}')
-      new_state, steer, throttle, done, yaw_rate = mpc.mpc_run(trajectory=waypoints_np)
-      # print(new_state[0])
-      # print(throttle[0])
-      states = np.append(states, np.array([new_state]), axis=0)
-      steer_arr.append(steer[0])
-      yaw_rate_arr.append(yaw_rate)
+      world.tick()
       
-      # print(f"Throttle: {throttle[0]}, Steer: {steer[0]}")
-      # print(states[0])
-      control.throttle = throttle[0]
+      cv2.imshow("RGB_Image", sensor_data['rgb_image'])
+      if cv2.waitKey(1) == ord('q'):
+            break
+      
+      # if i == 1:
+      #       time.sleep(10) 
+
+      last_transform = vehicle.get_transform()
+      last_velocity = vehicle.get_velocity()
+      # last_ang_vel = vehicle.get_angular_velocity()
+      last_state = np.array([last_transform.location.x, 
+                              last_transform.location.y, 
+                              last_transform.rotation.yaw*np.pi/180, 
+                              last_velocity.x, 
+                              last_velocity.y])
+      
+      steer, done = mpc.mpc_run(curr_state=last_state)
+      
+      control.throttle = 0.3
       control.steer = steer[0]
 
       vehicle.apply_control(control)
+  
+      i = i + 1 
       
-      transform = vehicle.get_transform()
-      print("current (carla): ", [transform.location.x, transform.location.y])
+os.system("pkill -9 CarlaUE4") 

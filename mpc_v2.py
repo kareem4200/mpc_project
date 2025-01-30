@@ -3,97 +3,72 @@ import math
 from scipy.optimize import minimize
 
 class MPC:
-      def __init__(self, time_step, horizon, initial_state):
+      def __init__(self, time_step, horizon, trajectory):
             self.time_step = time_step
             self.horizon = horizon
             self.current_wp_idx = 0
-            self.wheel_base = 2.875
+            self.wheel_base = 2.875 # tesla
             self.yaw_rate = 0
             self.max_steer = 45
-            self.max_acc = 5
-            self.state = initial_state
+            self.max_acc = 2
+            # self.state = initial_state
             self.steer_hist = np.zeros(horizon)
             # self.throttle_hist = np.zeros(horizon)
-            self.throttle_hist = np.full(shape=horizon, fill_value=0.5)
+            # self.throttle_hist = np.full(shape=horizon, fill_value=0.5)
+            self.trajectory = trajectory
             self.goal_reached = False
   
-      def cost(self, u, x0, waypoints):
+      def cost(self, u, waypoints, currunt_xy):
             cost = 0.0
             
-            x, y, theta, v = x0
+            x, y, theta, vx, vy = currunt_xy
       
             prev_delta, prev_a = 0, 0
-            
+
             for i in range(self.horizon):
-                  delta, a = u[2 * i], u[2 * i + 1]
                   target_x, target_y = waypoints[self.current_wp_idx]
                   
-                  delta = (delta * self.max_steer) * math.pi / 180
-                  a = a * self.max_acc
+                  delta = (u[i] * self.max_steer) * math.pi / 180
                   
-                  x_next = x + v * np.cos(theta) * self.time_step
-                  y_next = y + v * np.sin(theta) * self.time_step
-                  theta_next = theta + (v / self.wheel_base) * math.tan(delta) * self.time_step
-                  v_next = v + a * self.time_step
-                  # print("next x: ", x_next)
+                  x_next = x + vx * self.time_step
+                  y_next = y + vy * self.time_step
+                  theta_next = theta + (math.sqrt(vx**2 + vy**2) / self.wheel_base) * math.tan(delta) * self.time_step
+                  v_next = math.sqrt(vx**2 + vy**2) + self.max_acc * self.time_step
+             
                   cost += np.linalg.norm([x_next - target_x, y_next - target_y])
-                  cost += 0.4 * (delta ** 2)
-                  cost += 0.2 * (a ** 2)
-                  # print(a)
-                  # if a < 0.1:
-                  #       cost += 1.0
+                  cost += 0.2 * (delta ** 2)
                   
                   if i > 0:
                         steering_diff = np.abs(delta - prev_delta)
-                        throttle_diff = np.abs(a - prev_a)
-                        cost += 0.2 * (steering_diff ** 2 + throttle_diff ** 2)
+                        cost += 0.6 * (steering_diff ** 2)
                   
-                  prev_delta, prev_a = delta, a
+                  prev_delta = delta
                   
-                  x, y, theta, v = x_next, y_next, theta_next, v_next
-            # print("Cost: ", cost)
+                  x, y, theta, vx, vy = x_next, y_next, theta_next, v_next*math.cos(theta_next), v_next*math.sin(theta_next)
 
             return cost
       
-      def mpc_run(self, trajectory):
+      def mpc_run(self, curr_state):
             
-            bounds = [(-0.5, 0.5), (0.0, 1.0)] * self.horizon
-            # print(self.current_wp_idx)
+            # bounds = [(-0.1, 0.1), (0.0, 1.0)] * self.horizon
+            bounds = [(-1.0, 1.0)] * self.horizon
             
-            u0 = np.array([[self.steer_hist[i], self.throttle_hist[i]] for i in range(self.horizon)])
+            u0 = np.array([[self.steer_hist[i]] for i in range(self.horizon)])
             
             res = minimize(
                   self.cost,
                   u0,
-                  args=(self.state, trajectory.copy()),
+                  args=(self.trajectory.copy(), curr_state),
                   method="SLSQP",
                   bounds=bounds,
             )
 
             u_opt = res.x
-            u1 = u_opt[::2]  # Steering values (even indices)
-            u2 = u_opt[1::2]  # Throttle values (odd indices)
-                        
-            self.steer_hist = u1
-            self.throttle_hist = u2
-            
-            current_steer = (u1[0] * self.max_steer) * math.pi / 180
-            current_acc = u2[0] * self.max_acc
-            
-            self.state[0] += self.state[3] * np.cos(self.state[2]) * self.time_step
-            self.state[1] += self.state[3] * np.sin(self.state[2]) * self.time_step
-            self.yaw_rate = (self.state[3] / self.wheel_base) * math.tan(current_steer)
-            self.state[2] += (self.state[3] / self.wheel_base) * math.tan(current_steer) * self.time_step
-            self.state[3] += current_acc * self.time_step
-            
-            # print(self.state[0])
-            print("current (model): ", [self.state[0], self.state[1]])
-            # print("target: ", [trajectory[self.current_wp_idx][0], trajectory[self.current_wp_idx][1]])
-            
-            if np.linalg.norm([self.state[0] - trajectory[self.current_wp_idx][0], 
-                               self.state[1] - trajectory[self.current_wp_idx][1]]) <= 0.5:
+       
+            if np.linalg.norm([curr_state[0] - self.trajectory[self.current_wp_idx][0], 
+                               curr_state[1] - self.trajectory[self.current_wp_idx][1]]) <= 1.0:
                   self.current_wp_idx += 1
-                  if self.current_wp_idx >= len(trajectory):
-                        return self.state, u1, u2, True, self.yaw_rate
+                  if self.current_wp_idx >= len(self.trajectory):
+                        return u_opt, True
             
-            return self.state, u1, u2, False, self.yaw_rate
+            return u_opt, False
