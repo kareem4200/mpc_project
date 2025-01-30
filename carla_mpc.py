@@ -3,7 +3,6 @@ import numpy as np
 from mpc_v2 import MPC
 import time
 from agents.navigation.global_route_planner import GlobalRoutePlanner
-from vehicle_physics_tester import change_physics_control
 import os
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 import cv2
@@ -20,7 +19,7 @@ world.apply_settings(settings)
 
 amap = world.get_map()
 
-sampling_resolution = 10
+sampling_resolution = 5
 grp = GlobalRoutePlanner(amap, sampling_resolution)
 
 spawn_points = world.get_map().get_spawn_points()
@@ -28,8 +27,9 @@ a = carla.Location(spawn_points[50].location)
 b = carla.Location(spawn_points[100].location)
 
 w1 = grp.trace_route(a, b)
+print(w1[0])
 waypoints_list = []
-for w in w1:
+for w in w1[1:]:
       loc = w[0].transform.location
       waypoints_list.append([loc.x, loc.y])
       world.debug.draw_point(w[0].transform.location, size=0.05, life_time=1000.0)
@@ -59,7 +59,7 @@ def cam_callback(image, data_dict):
     
 control = carla.VehicleControl()
 
-horizon = 7
+horizon = 10
 dt = 0.045
 done = False
 
@@ -85,9 +85,10 @@ while not done:
                               last_velocity.x, 
                               last_velocity.y])
       
-      steer, done = mpc.mpc_run(curr_state=last_state)
-      
-      control.throttle = 0.3
+      steer, throttle, done = mpc.mpc_run(curr_state=last_state)
+      print("steer: ", steer[0])
+      print("throttle: ", throttle[0])
+      control.throttle = throttle[0]
       control.steer = steer[0]
 
       vehicle.apply_control(control)
